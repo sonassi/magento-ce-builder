@@ -1,0 +1,11 @@
+# The path to the remote Git repository
+# Eg. git@github.com:sonassi/magento-ce.git
+
+REPO_REMOTE=""
+
+# The name and email to use for the Git commit
+
+GIT_NAME=""
+GIT_EMAIL=""
+
+
