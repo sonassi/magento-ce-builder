@@ -1,5 +1,7 @@
 #!/bin/bash
 
+umask 022
+
 if [ -f "settings.conf" ]; then
   . settings.conf
 else
@@ -26,22 +28,27 @@ git remote add origin $REPO_REMOTE
 cd ../
 
 # Parse Magento's site for a list of current releases
-wget -qO - http://www.magentocommerce.com/download | ack-grep 'tar.gz">magento-([0-9.]+)\.tar\.gz ' --output='$1' | sort -n > versions
+wget -qO - http://www.magentocommerce.com/download | ack-grep '>magento-([0-9.]+)\.zip ' --output='$1' | sort -n > versions.tmp
+
+# Duplicate the first version so the master branch is created
+head -n 1 versions.tmp > versions
+cat versions.tmp      >> versions
+rm versions.tmp
 
 function download_release()
 {
   VERS="$1"
 
-  wget --no-check-certificate -S --spider "$ASSET_URL/$VERS/magento-$VERS.tar.gz" 2>&1 | grep -q "Remote file exists"
+  wget --no-check-certificate -S --spider "$ASSET_URL/$VERS/magento-$VERS.zip" 2>&1 | grep -q "Remote file exists"
   if [ $? -eq 0 ]; then
-    wget -qO magento-$VERS.tar.gz $ASSET_URL/$VERS/magento-$VERS.tar.gz
+    wget -qO magento-$VERS.zip $ASSET_URL/$VERS/magento-$VERS.zip
     return 0
   fi
 
   MAIN_VERS=$(echo $VERS | sed -E 's#\.[0-9]$##g')
-  wget --no-check-certificate -S --spider "$ASSET_URL/$MAIN_VERS/magento-$VERS.tar.gz" 2>&1 | grep -q "Remote file exists"
+  wget --no-check-certificate -S --spider "$ASSET_URL/$MAIN_VERS/magento-$VERS.zip" 2>&1 | grep -q "Remote file exists"
   if [ $? -eq 0 ]; then
-    wget -qO magento-$VERS.tar.gz $ASSET_URL/$MAIN_VERS/magento-$VERS.tar.gz
+    wget -qO magento-$VERS.zip $ASSET_URL/$MAIN_VERS/magento-$VERS.zip
     return 0
   fi
 
@@ -55,16 +62,17 @@ function process_release()
   cd $START_DIR/magento-ce-builder
 
   echo -ne "\n >> Downloading $VERS"
-  [ ! -f "magento-$VERS.tar.gz" ] && download_release $VERS
+  [ ! -f "magento-$VERS.zip" ] && download_release $VERS
   echo " OK"
 
   echo -n " >> Extracting"
-  tar xfz magento-$VERS.tar.gz || return 1
+  unzip -qq magento-$VERS.zip || return 1
   echo " OK"
 
   echo -n " >> Committing changes"
   cd $START_DIR/magento-ce-builder/repo
   git checkout -b $VERS >/dev/null 2>&1
+  git pull origin $VERS >/dev/null 2>&1
   rsync -a --delete ../magento/ ../repo/ --exclude="/.git"
   git add * .htaccess* >/dev/null 2>&1
   git commit -am "Version $VERS" >/dev/null 2>&1
@@ -81,7 +89,7 @@ function process_release()
 }
 
 while read VERS; do
-  process_release $VERS || ( rm $START_DIR/magento-ce-builder/magento-$VERS.tar.gz 2>/dev/null; process_release $VERS )
+  process_release $VERS || ( rm $START_DIR/magento-ce-builder/magento-$VERS.zip 2>/dev/null; process_release $VERS )
 done < versions
 
 # Cleanup
