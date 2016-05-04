@@ -14,7 +14,7 @@ fi
 
 [[ "$REPO_REMOTE" == "" ]] && echo "Error: Repository is not defined" && exit 2
 
-ASSET_URL="http://www.magentocommerce.com/downloads/assets"
+ASSET_URL="https://github.com/sonassi/magento-downloads/raw/master"
 START_DIR="$(pwd)"
 
 # Clean up previous runs
@@ -28,27 +28,20 @@ git remote add origin $REPO_REMOTE
 cd ../
 
 # Parse Magento's site for a list of current releases
-wget -qO - http://www.magentocommerce.com/download | ack-grep '>magento-([0-9.]+)\.zip ' --output='$1' | sort -n > versions.tmp
-
-# Duplicate the first version so the master branch is created
-head -n 1 versions.tmp > versions
-cat versions.tmp      >> versions
-rm versions.tmp
+wget --no-check-certificate -qO - http://www.magentocommerce.com/download | ack-grep '>magento-([0-9.]+)\.zip ' --output='$1' | sort -n > versions
 
 function download_release()
 {
-  VERS="$1"
+  local VERS="$1"
 
-  wget --no-check-certificate -S --spider "$ASSET_URL/$VERS/magento-$VERS.zip" 2>&1 | grep -q "Remote file exists"
-  if [ $? -eq 0 ]; then
-    wget -qO magento-$VERS.zip $ASSET_URL/$VERS/magento-$VERS.zip
-    return 0
+  if [ -f "$DOWNLOADS_DIR/magento-$VERS.zip" ]; then
+    cp $DOWNLOADS_DIR/magento-$VERS.zip magento-$VERS.zip
+    return $?
   fi
 
-  MAIN_VERS=$(echo $VERS | sed -E 's#\.[0-9]$##g')
-  wget --no-check-certificate -S --spider "$ASSET_URL/$MAIN_VERS/magento-$VERS.zip" 2>&1 | grep -q "Remote file exists"
+  wget --no-check-certificate -S --spider "$ASSET_URL/magento-$VERS.zip" 2>&1 | grep -q "Remote file exists"
   if [ $? -eq 0 ]; then
-    wget -qO magento-$VERS.zip $ASSET_URL/$MAIN_VERS/magento-$VERS.zip
+    wget --no-check-certificate -qO magento-$VERS.zip $ASSET_URL/magento-$VERS.zip
     return 0
   fi
 
@@ -57,39 +50,57 @@ function download_release()
 
 function process_release()
 {
-  VERS="$1"
+  local VERS COUNT
 
+  VERS="$1"
+  COUNT="$2"
+
+  # This is to work around the bug of some Magento downloads not being inside a directory called magento
   cd $START_DIR/magento-ce-builder
+  [ -d "magento" ] && rm -rf magento
+  mkdir -p magento
+  cd magento
 
   echo -ne "\n >> Downloading $VERS"
-  [ ! -f "magento-$VERS.zip" ] && download_release $VERS
+  download_release $VERS
   echo " OK"
 
   echo -n " >> Extracting"
-  unzip -qq magento-$VERS.zip || return 1
+  unzip -o -qq magento-$VERS.zip || return 1
+  [ -d "magento" ] && mv magento/* . >/dev/null 2>&1
+  [ -d "magento" ] && mv magento/.htaccess* . >/dev/null 2>&1
+  rm -rf magento magento-$VERS.zip
   echo " OK"
 
   echo -n " >> Committing changes"
   cd $START_DIR/magento-ce-builder/repo
-  git checkout -b $VERS >/dev/null 2>&1
-  git pull origin $VERS >/dev/null 2>&1
+
+  if [ $COUNT -eq 0 ]; then
+    TAG="master"
+    git pull origin $TAG >/dev/null 2>&1
+  elif [ $COUNT -gt 0 ]; then
+    TAG=$VERS
+    git push origin :refs/tags/$TAG >/dev/null 2>&1
+  fi
   rsync -a --delete ../magento/ ../repo/ --exclude="/.git"
   git add * .htaccess* >/dev/null 2>&1
-  git commit -am "Version $VERS" >/dev/null 2>&1
+  git commit -am "Version $VERS -new" >/dev/null 2>&1
+  git tag $VERS >/dev/null 2>&1
   echo " OK"
 
   echo -n " >> Pushing $VERS"
-  git push origin $VERS >/dev/null 2>&1
+  git push origin $TAG >/dev/null 2>&1
   echo " OK"
 
   cd $START_DIR/magento-ce-builder
-  rm -rf magento
 
   return 0
 }
 
+COUNT=0
 while read VERS; do
-  process_release $VERS || ( rm $START_DIR/magento-ce-builder/magento-$VERS.zip 2>/dev/null; process_release $VERS )
+  process_release $VERS $COUNT
+  COUNT=$(( COUNT + 1 ))
 done < versions
 
 # Cleanup

@@ -8,4 +8,6 @@ REPO_REMOTE=""
 GIT_NAME=""
 GIT_EMAIL=""
 
+# Directory to store downloads permanently to avoid wget each time
 
+DOWNLOADS_DIR=""
