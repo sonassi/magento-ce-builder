@@ -114,7 +114,9 @@ function process_release()
 }
 
 # Parse Magento's site for a list of current releases
-wget --no-check-certificate -qO - http://www.magentocommerce.com/download | ack-grep '>(magento\-|Magento Community Edition )([0-9.]+)\.zip ' --output='$2' | sort -n > versions
+wget --no-check-certificate -qO - http://www.magentocommerce.com/download | \
+  ack-grep '>(magento\-|Magento Community Edition )([0-9.]+)\.zip ' --output='$2' | \
+  sort -V > versions
 
 REMOTE_TAGS=$( cd $START_DIR/magento-ce-builder/repo; git ls-remote --tags origin | ack-grep 'tags/([0-9.]+)' --output='$1' )
 COUNT=0
